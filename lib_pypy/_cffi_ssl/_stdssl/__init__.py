@@ -144,7 +144,7 @@ PROTOCOL_TLS_CLIENT = 0x10
 PROTOCOL_TLS_SERVER = 0x11
 HAS_SSLv2 = bool(lib.Cryptography_HAS_SSL2)
 HAS_SSLv3 = SSLv3_method_ok
-HAS_TLSv1 = True # XXX
+HAS_TLSv1 = False # XXX
 HAS_TLSv1_1 = bool(lib.Cryptography_HAS_TLSv1_1)
 HAS_TLSv1_2 = bool(lib.Cryptography_HAS_TLSv1_2)
 HAS_TLSv1_3 = bool(lib.Cryptography_HAS_TLSv1_3)
@@ -1166,7 +1166,7 @@ class _SSLContext(object):
         if HAS_KEYLOG:
             self._keylog_filename = None
             self.keylog_bio = None
-        if protocol == PROTOCOL_TLSv1:
+        if HAS_TLSv1 and protocol == PROTOCOL_TLSv1:
             warnings.warn("ssl.PROTOCOL_TLSv1 is deprecated", DeprecationWarning)
             method = lib.TLSv1_method()
         elif lib.Cryptography_HAS_TLSv1_1 and protocol == PROTOCOL_TLSv1_1:
