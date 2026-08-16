@@ -2381,10 +2381,15 @@ else:
                                         certreqs=ssl.CERT_REQUIRED,
                                         cacerts=SIGNING_CA, chatty=False,
                                         connectionchatty=False)
+            # TLS 1.3 performs the client cert exchange after the handshake,
+            # so pin the client to TLS 1.2 where the rejection happens during
+            # connect().
+            client_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            client_context.load_cert_chain(certfile)
+            client_context.maximum_version = _ssl.PROTO_TLSv1_2
             with server, \
                     closing(socket.socket()) as sock, \
-                    closing(ssl.wrap_socket(sock,
-                                        certfile=certfile)) as s:
+                    closing(client_context.wrap_socket(sock)) as s:
                 try:
                     # Expect either an SSL error about the server rejecting
                     # the connection, or a low-level connection reset (which
