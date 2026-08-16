@@ -24,8 +24,15 @@ import functools
 from contextlib import closing
 
 ssl = support.import_module("ssl")
+_ssl = support.import_module("_ssl")
 
 PROTOCOLS = sorted(ssl._PROTOCOL_NAMES)
+# PROTOCOL_TLSv1 is still defined but unusable when HAS_TLSv1 is False
+# (OpenSSL 4.0 dropped the per-version methods).  Filter it out so tests
+# that iterate over PROTOCOLS only see usable protocols.  ssl.py does not
+# expose HAS_TLSv1, so consult the underlying _ssl module.
+if not _ssl.HAS_TLSv1:
+    PROTOCOLS = [p for p in PROTOCOLS if p != ssl.PROTOCOL_TLSv1]
 HOST = support.HOST
 IS_LIBRESSL = ssl.OPENSSL_VERSION.startswith('LibreSSL')
 IS_OPENSSL_1_1 = not IS_LIBRESSL and ssl.OPENSSL_VERSION_INFO >= (1, 1, 0)
@@ -503,7 +510,7 @@ class BasicSocketTests(unittest.TestCase):
         with self.assertRaises(ssl.SSLError):
             ssl.wrap_socket(sock,
                             certfile=certfile,
-                            ssl_version=ssl.PROTOCOL_TLSv1)
+                            ssl_version=ssl.PROTOCOL_TLS)
 
     def test_empty_cert(self):
         """Wrapping with an empty cert file"""
@@ -878,7 +885,7 @@ class ContextTests(unittest.TestCase):
             self.assertEqual(ctx.protocol, proto)
 
     def test_ciphers(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.set_ciphers("ALL")
         ctx.set_ciphers("DEFAULT")
         with self.assertRaisesRegexp(ssl.SSLError, "No cipher can be selected"):
@@ -890,7 +897,7 @@ class ContextTests(unittest.TestCase):
         Disable this test, it is too flaky. Different platforms define
         different defaults
         '''
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         # OP_ALL | OP_NO_SSLv2 | OP_NO_SSLv3 is the default value
         default = (ssl.OP_ALL | ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3)
         if not IS_LIBRESSL and ssl.OPENSSL_VERSION_INFO >= (1, 1, 0):
@@ -909,7 +916,7 @@ class ContextTests(unittest.TestCase):
                 ctx.options = 0
 
     def test_verify_mode(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         # Default value
         self.assertEqual(ctx.verify_mode, ssl.CERT_NONE)
         ctx.verify_mode = ssl.CERT_OPTIONAL
@@ -926,7 +933,7 @@ class ContextTests(unittest.TestCase):
     @unittest.skipUnless(have_verify_flags(),
                          "verify_flags need OpenSSL > 0.9.8")
     def test_verify_flags(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         # default value
         tf = getattr(ssl, "VERIFY_X509_TRUSTED_FIRST", 0)
         self.assertEqual(ctx.verify_flags, ssl.VERIFY_DEFAULT | tf)
@@ -944,7 +951,7 @@ class ContextTests(unittest.TestCase):
             ctx.verify_flags = None
 
     def test_load_cert_chain(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         # Combined key and cert in a single file
         ctx.load_cert_chain(CERTFILE, keyfile=None)
         ctx.load_cert_chain(CERTFILE, keyfile=CERTFILE)
@@ -957,7 +964,7 @@ class ContextTests(unittest.TestCase):
         with self.assertRaisesRegexp(ssl.SSLError, "PEM lib"):
             ctx.load_cert_chain(EMPTYCERT)
         # Separate key and cert
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.load_cert_chain(ONLYCERT, ONLYKEY)
         ctx.load_cert_chain(certfile=ONLYCERT, keyfile=ONLYKEY)
         ctx.load_cert_chain(certfile=BYTES_ONLYCERT, keyfile=BYTES_ONLYKEY)
@@ -968,7 +975,7 @@ class ContextTests(unittest.TestCase):
         with self.assertRaisesRegexp(ssl.SSLError, "PEM lib"):
             ctx.load_cert_chain(certfile=ONLYKEY, keyfile=ONLYCERT)
         # Mismatching key and cert
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         with self.assertRaisesRegexp(ssl.SSLError, "key values mismatch"):
             ctx.load_cert_chain(CAFILE_CACERT, ONLYKEY)
         # Password protected key and cert
@@ -1027,7 +1034,7 @@ class ContextTests(unittest.TestCase):
         ctx.load_cert_chain(CERTFILE, password=getpass_exception)
 
     def test_load_verify_locations(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.load_verify_locations(CERTFILE)
         ctx.load_verify_locations(cafile=CERTFILE, capath=None)
         ctx.load_verify_locations(BYTES_CERTFILE)
@@ -1058,7 +1065,7 @@ class ContextTests(unittest.TestCase):
         neuronio_der = ssl.PEM_cert_to_DER_cert(neuronio_pem)
 
         # test PEM
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         self.assertEqual(ctx.cert_store_stats()["x509_ca"], 0)
         ctx.load_verify_locations(cadata=cacert_pem)
         self.assertEqual(ctx.cert_store_stats()["x509_ca"], 1)
@@ -1069,20 +1076,20 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(ctx.cert_store_stats()["x509_ca"], 2)
 
         # combined
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         combined = "\n".join((cacert_pem, neuronio_pem))
         ctx.load_verify_locations(cadata=combined)
         self.assertEqual(ctx.cert_store_stats()["x509_ca"], 2)
 
         # with junk around the certs
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         combined = ["head", cacert_pem, "other", neuronio_pem, "again",
                     neuronio_pem, "tail"]
         ctx.load_verify_locations(cadata="\n".join(combined))
         self.assertEqual(ctx.cert_store_stats()["x509_ca"], 2)
 
         # test DER
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.load_verify_locations(cadata=cacert_der)
         ctx.load_verify_locations(cadata=neuronio_der)
         self.assertEqual(ctx.cert_store_stats()["x509_ca"], 2)
@@ -1091,13 +1098,13 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(ctx.cert_store_stats()["x509_ca"], 2)
 
         # combined
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         combined = b"".join((cacert_der, neuronio_der))
         ctx.load_verify_locations(cadata=combined)
         self.assertEqual(ctx.cert_store_stats()["x509_ca"], 2)
 
         # error cases
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         self.assertRaises(TypeError, ctx.load_verify_locations, cadata=object)
 
         with self.assertRaisesRegexp(
@@ -1120,7 +1127,7 @@ class ContextTests(unittest.TestCase):
         except UnicodeEncodeError:
             self.skipTest("filename %r cannot be encoded to the filesystem encoding %r" % (filename, fs_encoding))
 
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.load_dh_params(DHFILE)
         if os.name != 'nt':
             ctx.load_dh_params(BYTES_DHFILE)
@@ -1157,12 +1164,12 @@ class ContextTests(unittest.TestCase):
     def test_set_default_verify_paths(self):
         # There's not much we can do to test that it acts as expected,
         # so just check it doesn't crash or raise an exception.
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.set_default_verify_paths()
 
     @unittest.skipUnless(ssl.HAS_ECDH, "ECDH disabled on this OpenSSL build")
     def test_set_ecdh_curve(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.set_ecdh_curve("prime256v1")
         ctx.set_ecdh_curve(b"prime256v1")
         self.assertRaises(TypeError, ctx.set_ecdh_curve)
@@ -1172,7 +1179,7 @@ class ContextTests(unittest.TestCase):
 
     @needs_sni
     def test_sni_callback(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
 
         # set_servername_callback expects a callable, or None
         self.assertRaises(TypeError, ctx.set_servername_callback)
@@ -1189,7 +1196,7 @@ class ContextTests(unittest.TestCase):
     def test_sni_callback_refcycle(self):
         # Reference cycles through the servername callback are detected
         # and cleared.
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         def dummycallback(sock, servername, ctx, cycle=ctx):
             pass
         ctx.set_servername_callback(dummycallback)
@@ -1199,7 +1206,7 @@ class ContextTests(unittest.TestCase):
         self.assertIs(wr(), None)
 
     def test_cert_store_stats(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         self.assertEqual(ctx.cert_store_stats(),
             {'x509_ca': 0, 'crl': 0, 'x509': 0})
         ctx.load_cert_chain(CERTFILE)
@@ -1213,7 +1220,7 @@ class ContextTests(unittest.TestCase):
             {'x509_ca': 1, 'crl': 0, 'x509': 2})
 
     def test_get_ca_certs(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         self.assertEqual(ctx.get_ca_certs(), [])
         # CERTFILE is not flagged as X509v3 Basic Constraints: CA:TRUE
         ctx.load_verify_locations(CERTFILE)
@@ -1241,24 +1248,24 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(ctx.get_ca_certs(True), [der])
 
     def test_load_default_certs(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.load_default_certs()
 
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.load_default_certs(ssl.Purpose.SERVER_AUTH)
         ctx.load_default_certs()
 
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.load_default_certs(ssl.Purpose.CLIENT_AUTH)
 
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         self.assertRaises(TypeError, ctx.load_default_certs, None)
         self.assertRaises(TypeError, ctx.load_default_certs, 'SERVER_AUTH')
 
     @unittest.skipIf(sys.platform == "win32", "not-Windows specific")
     @unittest.skipIf(IS_LIBRESSL, "LibreSSL doesn't support env vars")
     def test_load_default_certs_env(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         with support.EnvironmentVarGuard() as env:
             env["SSL_CERT_DIR"] = CAPATH
             env["SSL_CERT_FILE"] = CERTFILE
@@ -1267,11 +1274,11 @@ class ContextTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "Windows specific")
     def test_load_default_certs_env_windows(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         ctx.load_default_certs()
         stats = ctx.cert_store_stats()
 
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         with support.EnvironmentVarGuard() as env:
             env["SSL_CERT_DIR"] = CAPATH
             env["SSL_CERT_FILE"] = CERTFILE
@@ -1323,18 +1330,19 @@ class ContextTests(unittest.TestCase):
         self.assertFalse(ctx.check_hostname)
         self._assert_context_options(ctx)
 
-        ctx = ssl._create_stdlib_context(ssl.PROTOCOL_TLSv1)
-        self.assertEqual(ctx.protocol, ssl.PROTOCOL_TLSv1)
-        self.assertEqual(ctx.verify_mode, ssl.CERT_NONE)
-        self._assert_context_options(ctx)
+        if _ssl.HAS_TLSv1:
+            ctx = ssl._create_stdlib_context(ssl.PROTOCOL_TLSv1)
+            self.assertEqual(ctx.protocol, ssl.PROTOCOL_TLSv1)
+            self.assertEqual(ctx.verify_mode, ssl.CERT_NONE)
+            self._assert_context_options(ctx)
 
-        ctx = ssl._create_stdlib_context(ssl.PROTOCOL_TLSv1,
-                                         cert_reqs=ssl.CERT_REQUIRED,
-                                         check_hostname=True)
-        self.assertEqual(ctx.protocol, ssl.PROTOCOL_TLSv1)
-        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
-        self.assertTrue(ctx.check_hostname)
-        self._assert_context_options(ctx)
+            ctx = ssl._create_stdlib_context(ssl.PROTOCOL_TLSv1,
+                                             cert_reqs=ssl.CERT_REQUIRED,
+                                             check_hostname=True)
+            self.assertEqual(ctx.protocol, ssl.PROTOCOL_TLSv1)
+            self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
+            self.assertTrue(ctx.check_hostname)
+            self._assert_context_options(ctx)
 
         ctx = ssl._create_stdlib_context(purpose=ssl.Purpose.CLIENT_AUTH)
         self.assertEqual(ctx.protocol, ssl.PROTOCOL_SSLv23)
@@ -1393,7 +1401,7 @@ class ContextTests(unittest.TestCase):
             assert_python_ok("-c", https_is_verified, **extra_env)
 
     def test_check_hostname(self):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         self.assertFalse(ctx.check_hostname)
 
         # Requires CERT_REQUIRED or CERT_OPTIONAL
@@ -1429,7 +1437,7 @@ class SSLErrorTests(unittest.TestCase):
 
     def test_lib_reason(self):
         # Test the library and reason attributes
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         with self.assertRaises(ssl.SSLError) as cm:
             ctx.load_dh_params(CERTFILE)
         self.assertEqual(cm.exception.library, 'PEM')
@@ -1440,7 +1448,7 @@ class SSLErrorTests(unittest.TestCase):
     def test_subclass(self):
         # Check that the appropriate SSLError subclass is raised
         # (this only tests one of them)
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
         with closing(socket.socket()) as s:
             s.bind(("127.0.0.1", 0))
             s.listen(5)
@@ -2234,7 +2242,8 @@ else:
             if support.verbose:
                 sys.stdout.write("\n")
             for protocol in PROTOCOLS:
-                if protocol in (ssl.PROTOCOL_TLSv1, ssl.PROTOCOL_TLSv1_1):
+                if protocol in (ssl.PROTOCOL_TLSv1,
+                                getattr(ssl, 'PROTOCOL_TLSv1_1', None)):
                     continue  # OpenSSL 3 makes these unuseable
                 context = ssl.SSLContext(protocol)
                 context.load_cert_chain(CERTFILE)
@@ -3097,7 +3106,8 @@ else:
 
         def test_dh_params(self):
             # Check we can get a connection with ephemeral Diffie-Hellman
-            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            context.maximum_version = _ssl.PROTO_TLSv1_2
             context.load_cert_chain(CERTFILE)
             context.load_dh_params(DHFILE)
             context.set_ciphers("kEDH")
@@ -3138,10 +3148,10 @@ else:
                 (['http/3.0', 'http/4.0'], None)
             ]
             for client_protocols, expected in protocol_tests:
-                server_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+                server_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
                 server_context.load_cert_chain(CERTFILE)
                 server_context.set_alpn_protocols(server_protocols)
-                client_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+                client_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
                 client_context.load_cert_chain(CERTFILE)
                 client_context.set_alpn_protocols(client_protocols)
 
